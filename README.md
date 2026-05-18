@@ -17,9 +17,9 @@ Distributed neural network training using C++ workers and custom RDT over UDP
 ## 1. ARCHITECTURAL OVERVIEW & NODE ROLES
 The system implements a multi-tier, Master-Worker (Master-Slave) distributed architecture designed to offload heavy matrix algebra operations from a Deep Learning training loop to multiple remote terminals over a Local Area Network (LAN).
 
-* **Python Master (The Orchestrator):** Coordinates the neural network training loop (360 epochs). It loads the Diabetes CSV dataset, manages the network graph (`MulticlassClassifier`), and intercepts linear layer transformations to offload them via `pybind11`.
-* **C++ Master Bridge (The Distributor):** Receives matrix memory pointers from Python. It sections large multi-dimensional tensors into discrete chunks ($D_n$) of fixed size, encapsulates them into RDT packets, and transmits them via non-blocking UDP sockets. It handles logical timers, ACKs, NACKs, and retransmissions.
-* **C++ Slaves / Workers (The Compute Engine):** 3 to 4 standalone terminals listening on UDP ports. They act as stateless matrix engines that parse 500-byte streams, execute floating-point matrix multiplications, and return results back using RDT encapsulation.
+* **Python Master:** Coordinates the neural network training loop (360 epochs). It loads the Diabetes CSV dataset, manages the network graph (`MulticlassClassifier`), and intercepts linear layer transformations to offload them via `pybind11`.
+* **C++ Master Bridge:** Receives matrix memory pointers from Python. It sections large multi-dimensional tensors into discrete chunks ($D_n$) of fixed size, encapsulates them into RDT packets, and transmits them via non-blocking UDP sockets. It handles logical timers, ACKs, NACKs, and retransmissions.
+* **C++ Slaves / Workers:** 3 to 4 standalone terminals listening on UDP ports. They act as stateless matrix engines that parse 500-byte streams, execute floating-point matrix multiplications, and return results back using RDT encapsulation.
 
 ---
 
@@ -67,9 +67,9 @@ Network offloading occurs during two vital stages inside the computational graph
 ## 1. ARQUITECTURA GENERAL Y ROLES DE LOS NODOS
 El proyecto implementa una arquitectura distribuida Maestro-Trabajador (Maestro-Esclavo) de múltiples niveles diseñada para descargar operaciones pesadas de álgebra matricial desde el bucle de entrenamiento de Deep Learning hacia terminales remotas en una Red de Área Local (LAN).
 
-* **Maestro Python (El Orquestador):** Coordina el ciclo de entrenamiento de la red neuronal (360 épocas). Carga el conjunto de datos CSV de Diabetes, maneja el grafo de la red (`MulticlassClassifier`) e intercepta las transformaciones de las capas lineales para delegarlas mediante `pybind11`.
-* **Puente Maestro C++ (El Distribuidor):** Recibe punteros de memoria de las matrices desde Python. Segmenta los grandes tensores multidimensionales en bloques discretos ($D_n$) de tamaño fijo, los encapsula en paquetes RDT y los transmite mediante sockets UDP no bloqueantes. Administra temporizadores lógicos, ACKs, NACKs y retransmisiones.
-* **Esclavos / Trabajadores C++ (El Motor de Cómputo):** De 3 a 4 terminales independientes escuchando en puertos UDP. Actúan estrictamente como motores de cálculo matricial sin estado que parsean flujos de 500 bytes, ejecutan multiplicaciones de matrices de punto flotante y devuelven los resultados empaquetados bajo RDT.
+* **Maestro Python:** Coordina el ciclo de entrenamiento de la red neuronal (360 épocas). Carga el conjunto de datos CSV de Diabetes, maneja el grafo de la red (`MulticlassClassifier`) e intercepta las transformaciones de las capas lineales para delegarlas mediante `pybind11`.
+* **Puente Maestro C++ :** Recibe punteros de memoria de las matrices desde Python. Segmenta los grandes tensores multidimensionales en bloques discretos ($D_n$) de tamaño fijo, los encapsula en paquetes RDT y los transmite mediante sockets UDP no bloqueantes. Administra temporizadores lógicos, ACKs, NACKs y retransmisiones.
+* **Esclavos / Trabajadores C++:** De 3 a 4 terminales independientes escuchando en puertos UDP. Actúan estrictamente como motores de cálculo matricial sin estado que parsean flujos de 500 bytes, ejecutan multiplicaciones de matrices de punto flotante y devuelven los resultados empaquetados bajo RDT.
 
 ---
 
