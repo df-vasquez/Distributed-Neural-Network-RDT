@@ -1,177 +1,129 @@
 # Sistema de Entrenamiento Distribuido de Redes Neuronales sobre el Protocolo RDT-UDP
+# Integrantes:
 
-Este proyecto implementa una arquitectura distribuida de aprendizaje federado mediante el método de Paralelismo de Datos (Data Parallelism). El sistema permite el entrenamiento de una red neuronal artificial para la clasificación de diabetes utilizando un canal de transporte no confiable (UDP). Para garantizar la integridad, orden y control de pérdidas de los datos transferidos, se ha diseñado un protocolo personalizado de Transferencia Confiable de Datos (RDT) en C++, integrado nativamente en Python a través de la biblioteca Pybind11.
-
-**Course / Curso:** Redes y Comunicaciones  
-**Reference Textbook / Libro de Referencia:** Computer Networking: A Top-Down Approach (Kurose & Ross)  
-
-### TEAM MEMBERS / INTEGRANTES:
-* Chávez, Jorge
-* Cornejo, Gabriel
-* Mendoza, Mariela
-* Vásquez, Diego
-
-A continuación se presenta la documentación técnica y el manual de despliegue estructurado en formato `README.md`.
+1. Gabriel Cornejo
+2. Jorge Chavez
+3. Marela Mendoza
+4. Diego Vasquez
+   
+Este proyecto implementa una arquitectura distribuida de aprendizaje federado mediante el método de Paralelismo de Datos (Data Parallelism) configurada de forma fija para un entorno de **1 Nodo Maestro y 3 Nodos Esclavos**. El sistema permite el entrenamiento de una red neuronal artificial para la clasificación de diabetes utilizando un canal de transporte no confiable (UDP). Para garantizar la integridad, el orden y el control de pérdidas de los datos transferidos, se utiliza un protocolo personalizado de Transferencia Confiable de Datos (RDT) en C++, integrado nativamente en Python a través de Pybind11.
 
 ---
 
-```
+## 1. Estructura de Directorios del Proyecto
+
+La organización del repositorio aísla los recursos y garantiza la modularidad del software:
+
+📂 proyecto_ia_distribuida/
+┃
+┣ 📂 dataset/
+┃ ┗ 📄 Diabetes.csv               
+┃
+┣ 📂 maestro/
+┃ ┣ 📜 rdt_master.cpp             # Lógica RDT en C++ para segmentación, recepción y promedio de matrices
+┃ ┣ 📜 rdt_master.hpp             # Definiciones de cabeceras del nodo maestro
+┃ ┣ 📜 setup.py                   # Script de compilación Pybind11 para el módulo maestro
+┃ ┗ 🐍 maestro.py                 # IA, división de datos y actualización de pesos
+┃
+┗ 📂 esclavo/
+  ┣ 📜 rdt_slave.cpp              # Lógica RDT en C++ para recepción de datos y envío de gradientes
+  ┣ 📜 rdt_slave.hpp              # Definiciones de cabeceras del nodo esclavo
+  ┣ 📜 setup.py                   # Script de compilación Pybind11 para el módulo esclavo
+  ┗ 🐍 esclavo.py                 # IA (Forward y Backward Pass)
 
 ---
 
-## 1. Estructura del Proyecto
+## 2. Especificación Estricta del Protocolo RDT (500 Bytes)
 
-El repositorio está organizado bajo el siguiente árbol de directorios para garantizar el aislamiento de los recursos y la modularidad del software:
-
-```text
-proyecto_ia_distribuida/
-│
-├── dataset/
-│   └── Diabetes.csv               # Conjunto de datos original (1000 registros, 14 características)
-│
-├── maestro/
-│   ├── rdt_master.cpp             # Lógica RDT en C++ para segmentación, recepción y agregación
-│   ├── rdt_master.hpp             # Definiciones de cabeceras del nodo maestro
-│   ├── setup.py                   # Script de compilación Pybind11 para el módulo maestro
-│   └── maestro.py                 # Orquestador de IA, carga de datos y actualización de parámetros
-│
-└── esclavo/
-    ├── rdt_slave.cpp              # Lógica RDT en C++ para recepción de datos y envío de gradientes
-    ├── rdt_slave.hpp              # Definiciones de cabeceras del nodo esclavo
-    ├── setup.py                   # Script de compilación Pybind11 para el módulo esclavo
-    └── esclavo.py                 # Procesamiento local de IA (Forward y Backward Pass)
-
-```
-
----
-
-## 2. Especificación del Protocolo de Aplicación RDT
-
-Debido a que el protocolo base UDP opera sin estado y no garantiza la entrega de datagramas, la capa de transporte del proyecto implementa un protocolo RDT acotado a un tamaño estricto de **500 bytes por datagrama**.
+El protocolo opera en la capa de aplicación y delimita el tamaño máximo de cada datagrama a un límite estricto de **500 bytes**. La elección de 500 bytes en lugar de la clásica potencia de dos (512 bytes) responde a un criterio de diseño controlado, donde el software gestiona directamente la fragmentación exacta del búfer independientemente de las alineaciones por defecto de la memoria física.
 
 ### 2.1. Anatomía del Datagrama (Encapsulación)
 
-Cada paquete transmitido por la red se divide de manera fija en dos secciones fundamentales: Cabecera (Header) y Carga Útil (Payload).
+Cada paquete transmitido se divide de manera fija en dos secciones:
 
 $$\text{Datagrama Total (500 bytes)} = \text{Cabecera (7 bytes)} + \text{Carga Útil (493 bytes)}$$
 
 * **Cabecera (Bytes 0 al 6):**
-* `Byte 0 [1 Byte] - Checksum (Hash):` Valor numérico obtenido mediante la suma modular de la carga útil (`Suma % 7`). Se utiliza para la detección de errores por inversión de bits o corrupción en el canal físico. Si el receptor calcula un Hash distinto, el paquete es descartado.
-* `Bytes 1-2 [2 Bytes] - Flags de Control (Banderas):` Controlan la fragmentación y el reensamblado de estructuras extensas.
-* `01`: Indica el datagrama inicial de una ráfaga de datos.
-* `00`: Indica un datagrama intermedio.
-* `11`: Indica el datagrama final de la secuencia.
-
-
-* `Bytes 3-6 [4 Bytes] - Número de Secuencia (SEQ):` Valor numérico incremental codificado en texto con relleno de ceros (ej. `0000`, `0001`). Permite al receptor ordenar los fragmentos en el búfer de la aplicación, mitigando el problema del desorden inherente a UDP.
-
-
+    * `Byte 0 [1 Byte] - Checksum (Hash):` Valor numérico obtenido mediante la suma matemática de los caracteres del payload bajo la operación aritmética `Suma % 7`. Su propósito es la detección de errores por inversión de bits en el canal. Si el hash calculado por el receptor no coincide con este byte, el paquete se descarta de inmediato.
+    * `Bytes 1-2 [2 Bytes] - Banderas de Fragmentación (Flags):` Controlan el reensamblado de las estructuras de datos extensas en el destino.
+        * `01`: Datagrama inicial de una ráfaga.
+        * `00`: Datagrama intermedio.
+        * `11`: Datagrama final de la secuencia.
+    * `Bytes 3-6 [4 Bytes] - Número de Secuencia (SEQ):` Valor numérico incremental codificado en texto con relleno de ceros a la izquierda (ej. `0000`, `0001`). Permite al receptor ordenar los fragmentos en el búfer de manera correcta, mitigando el problema del desorden de paquetes en UDP.
 * **Carga Útil (Bytes 7 al 499):**
-* `Payload [493 Bytes]:` Contiene los datos crudos serializados (subconjuntos del dataset, vectores de pesos sintácticos o matrices de gradientes). Los espacios remanentes no utilizados se rellenan de manera uniforme con el carácter `#` para forzar el tamaño estricto del datagrama.
+    * `Payload [493 Bytes]:` Segmento de datos puros serializados en texto. Los espacios remanentes de la carga útil que no alcancen los 493 bytes se rellenan de forma uniforme con el carácter `#` para forzar el tamaño estricto de 500 bytes en el socket.
 
+### 2.2. Control de Pérdidas por Temporización (Algoritmo de Karn)
 
-
-### 2.2. Control de Pérdidas y Temporización (Algoritmo de Karn)
-
-Para gestionar la pérdida de paquetes sin saturar la red ni generar estimaciones falsas de retraso, el nodo maestro implementa un mecanismo de Temporizador de Retransmisión (RTO) fundamentado en el Algoritmo de Karn:
-
-1. Se mide el tiempo de ida y vuelta (RTT) únicamente de aquellos datagramas que son confirmados con éxito en su primera transmisión.
-2. Si un temporizador expira y ocurre una retransmisión, se aplica un retroceso exponencial (Exponential Backoff), duplicando el valor del temporizador para el siguiente intento.
-3. Se prohíbe explícitamente calcular el RTT a partir de paquetes retransmitidos, evitando la ambigüedad en el reconocimiento de las confirmaciones.
+Para gestionar la pérdida de paquetes en el laboratorio sin saturar el canal ni generar estimaciones falsas de retraso, el nodo maestro implementa un mecanismo de Temporizador de Retransmisión (RTO) basado en el Algoritmo de Karn:
+1.  Se mide el tiempo de ida y vuelta (RTT) únicamente de aquellos datagramas que son confirmados con éxito en su primera transmisión.
+2.  Si un temporizador expira y ocurre una retransmisión, se aplica un retroceso exponencial (Exponential Backoff), duplicando el valor del temporizador para el siguiente intento.
+3.  Se prohíbe calcular el RTT a partir de paquetes retransmitidos, eliminando la ambigüedad de no saber si la confirmación pertenece al paquete original o al retransmitido.
 
 ---
 
-## 3. Flujo Macroscópico del Sistema (Una Sola Época)
+## 3. Flujo Operacional de la Red Neuronal Distribuida (1 Sola Época)
 
-El proceso de entrenamiento distribuido se ejecuta en un único ciclo síncrono estructurado en tres fases secuenciales:
+El entrenamiento distribuido se ejecuta en un único ciclo síncrono estructurado en tres fases:
 
-### Fase 1: Segmentación y Distribución del Dataset
+### Fase 1: Segmentación del Dataset (Inicio del Programa)
+1.  El script `maestro.py` lee el archivo `Diabetes.csv` con las 1000 muestras.
+2.  El dataset se divide en 4 porciones proporcionales: el Maestro se reserva 250 muestras para su cómputo local, y asigna 250 muestras independientes a cada uno de los 3 esclavos.
+3.  El script invoca al módulo nativo `rdt_master` en C++, el cual fragmenta cada bloque en cadenas de texto de 493 bytes, les añade la cabecera de control y las envía vía UDP a las direcciones IP de los 3 esclavos. Esta transferencia ocurre una sola vez.
 
-1. El archivo `Diabetes.csv` es cargado en la memoria del script `maestro.py`.
-2. El dataset se fragmenta en partes proporcionales según el número de nodos esclavos concurrentes en el laboratorio.
-3. El script invoca al módulo nativo `rdt_master` en C++, el cual encapsula los registros en tramas de 500 bytes y los distribuye vía UDP hacia las direcciones IP correspondientes de los esclavos. Cada esclavo almacena de manera local su porción exclusiva del dataset.
+### Fase 2: Sincronización de Pesos y Cómputo Local
+1.  El `maestro.py` instancia la red neuronal, generando los coeficientes matemáticos iniciales (pesos y sesgos) de forma aleatoria. Estos parámetros globales se transmiten inmediatamente a los 3 esclavos mediante una ráfaga RDT.
+2.  Los scripts `esclavo.py` reciben los parámetros a través de sus módulos `rdt_slave.cpp` y clonan la red neuronal de forma exacta.
+3.  Cada nodo (Maestro y los 3 Esclavos) procesa sus 250 muestras asignadas en paralelo:
+    * **Forward Pass:** Se evalúan las características clínicas de entrada para generar las predicciones de la IA y calcular el error (Loss).
+    * **Backward Pass:** Mediante el algoritmo de retropropagación, cada nodo calcula las derivadas del error respecto a los pesos, generando una matriz local de **Gradientes** (la dirección en la que debe aprender la red).
 
-### Fase 2: Sincronización y Cómputo Local Paralelo
-
-1. El nodo maestro inicializa la arquitectura de la red neuronal, generando los coeficientes matemáticos (pesos y sesgos) iniciales. Estos parámetros globales se transmiten a toda la red mediante un mecanismo de difusión (Broadcast) RDT.
-2. Cada nodo esclavo recibe la estructura de la red mediante `rdt_slave` y la carga en su entorno local de PyTorch (`esclavo.py`).
-3. Todos los nodos procesan sus datos de forma aislada y simultánea realizando dos operaciones:
-* **Forward Pass:** Evaluación de las 14 características clínicas del paciente para generar la predicción de diabetes y calcular la función de pérdida (error).
-* **Backward Pass (Backpropagation):** Computación de las derivadas parciales del error respecto a los parámetros del modelo, generando una matriz local de **Gradientes**.
-
-
-
-### Fase 3: Reducción y Agregación de Gradientes en C++
-
-1. Los esclavos serializan sus matrices de gradientes locales y las envían de regreso al nodo maestro utilizando canales RDT confiables de 500 bytes.
-2. El módulo `rdt_master.cpp` del maestro actúa como un receptor centralizado. Una vez validados los hashes y reordenadas las secuencias, el código C++ ejecuta el algoritmo de agregación matemática: realiza la suma posicional de todas las matrices recibidas y calcula el promedio aritmético exacto.
-3. La matriz unificada de gradientes promedio es devuelta al espacio de nombres de Python en el maestro, donde se ejecuta la instrucción `optimizer.step()`, actualizando formalmente los pesos globales del modelo predictivo.
-4. El nodo maestro evalúa el modelo final frente a un conjunto de datos de prueba no vistos previamente, imprimiendo las métricas cuantitativas de precisión en la terminal.
+### Fase 3: Reducción y Agregación Matemática en C++
+1.  Cada uno de los 3 esclavos toma su matriz de gradientes local, la serializa en texto y la transmite de vuelta al maestro en tramas RDT de 500 bytes.
+2.  El módulo `rdt_master.cpp` del maestro recibe los paquetes, valida los hashes, reordena los fragmentos y reconstruye las 3 matrices de los esclavos, sumando además la matriz generada por el propio maestro.
+3.  **El Promedio en C++:** El código C++ realiza la agregación matemática en memoria de alto rendimiento: suma los valores posición por posición de las 4 matrices y los divide entre 4 para obtener la **Matriz de Gradiente Promedio Global**.
+4.  Esta matriz unificada se entrega al espacio de nombres de Python en el maestro, el cual ejecuta la instrucción `optimizer.step()`, actualizando formalmente los pesos de la red neuronal con el aprendizaje combinado de todo el sistema.
+5.  El maestro evalúa el modelo final frente a un conjunto de datos de prueba retenidos y despliega las métricas cuantitativas en la pantalla.
 
 ---
 
 ## 4. Instrucciones de Instalación y Despliegue
 
 ### 4.1. Requisitos del Entorno
-
-Garantizar la instalación previa de los siguientes paquetes en todas las estaciones de trabajo involucradas:
+Instalar las dependencias de cómputo científico e interfaces en todas las estaciones de trabajo:
 
 ```bash
 pip install torch pandas scikit-learn matplotlib pybind11 setuptools
 
-```
+4.2. Compilación de los Módulos Puente (C++ a Python)
+En la Máquina Maestra:
+Compilar la lógica de red y agregación para generar la librería dinámica nativa de Python:
 
-### 4.2. Compilación de los Módulos Puente (C++ a Python)
-
-**En la Máquina Maestra:**
-Navegar al directorio del maestro y ejecutar la compilación del módulo dinámico a través de `setuptools` y `pybind11`:
-
-```bash
+Bash
 cd maestro
 python setup.py build_ext --inplace
+En las 3 Máquinas Esclavas:
+Ejecutar la compilación local en cada uno de los terminales destinados como esclavos:
 
-```
-
-Este comando generará una biblioteca compartida ejecutable directamente por el intérprete de Python (archivo con extensión `.so` o `.pyd`).
-
-**En las Máquinas Esclavas:**
-Repetir el proceso de compilación local en cada uno de los terminales destinados como esclavos dentro de la red:
-
-```bash
+Bash
 cd esclavo
 python setup.py build_ext --inplace
+4.3. Protocolo de Ejecución en Red
+Para evitar la pérdida de datagramas iniciales por falta de escucha, el orden de arranque debe ser el siguiente:
 
-```
+Paso 1 (Esclavos): En las 3 computadoras esclavas, ejecutar el script para inicializar los sockets de recepción:
 
-### 4.3. Protocolo de Ejecución en Red
-
-Para evitar condiciones de carrera o desbordamientos en los búferes de recepción, se debe seguir estrictamente el siguiente orden de arranque:
-
-1. **Activación de los Nodos Esclavos:**
-En cada una de las computadoras asignadas como esclavos, iniciar el script de escucha para quedar a la espera del dataset segmentado:
-```bash
+Bash
 python esclavo.py
+Paso 2 (Maestro): En la computadora maestra, iniciar el proceso central para comenzar la distribución de datos y el entrenamiento:
 
-```
-
-
-2. **Activación del Nodo Maestro:**
-Una vez cerciorado que los sockets de los esclavos están abiertos y vinculados al puerto correspondiente, iniciar el proceso central en la máquina maestra:
-```bash
+Bash
 python maestro.py
+4.4. Resultados del Entrenamiento
+Al finalizar la única época de entrenamiento, la terminal del maestro desplegará:
 
-```
+Métrica de exactitud global del modelo (Accuracy score).
 
+Reporte detallado de rendimiento (Precision, Recall y F1-Score).
 
-
-### 4.4. Resultados Esperados
-
-Al culminar la transferencia y el procesamiento de la única época de entrenamiento, la consola del maestro imprimirá de forma automática los siguientes indicadores de rendimiento de la red neuronal:
-
-* Métrica de precisión global (*Accuracy score*).
-* Reporte detallado de clasificación (*Precision*, *Recall* y *F1-Score* por clase).
-* Matriz de confusión impresa en terminal y despliegue gráfico del comportamiento de la pérdida.
-
-```
-
-```
+La interfaz gráfica de la Matriz de Confusión y la curva de la función de pérdida.
