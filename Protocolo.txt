@@ -1,0 +1,213 @@
+CURSO: Redes y Comunicaciones
+DOCENTE: Dr. Julio Santisteban Pablo
+
+ESPECIFICACIÓN DEL PROTOCOLO RDT-UDP
+Versión 1.0
+
+================================================================================
+
+1. INTRODUCCIÓN
+   ================================================================================
+
+Con el objetivo de proporcionar comunicación confiable sobre UDP, se implementó
+un protocolo de aplicación denominado RDT-UDP.
+
+El protocolo incorpora mecanismos de detección de errores, control de orden,
+confirmaciones positivas y negativas, retransmisión por timeout y estimación
+adaptativa de temporizadores inspirada en los protocolos Reliable Data Transfer
+(RDT) estudiados en Kurose y Ross.
+
+================================================================================
+2. TOPOLOGÍA DEL SISTEMA
+========================
+
+La red opera bajo una arquitectura Parameter Server compuesta por:
+
+* 1 Nodo Maestro.
+* 3 Nodos Esclavos.
+
+El Maestro coordina la ejecución global del entrenamiento distribuido y realiza
+la agregación de gradientes.
+
+================================================================================
+3. FORMATO DEL DATAGRAMA
+========================
+
+Todos los mensajes poseen un tamaño fijo de 500 bytes.
+
+Distribución:
+
+500 Bytes =
+FLAGS (2B)
+
+* SEQ (4B)
+* ACK/NACK (4B)
+* PAYLOAD (489B)
+* CHECKSUM (1B)
+
+┌─────────────────────────────────────────────┐
+│ FLAGS                    │ 2 Bytes          │
+├─────────────────────────────────────────────┤
+│ SEQ                      │ 4 Bytes          │
+├─────────────────────────────────────────────┤
+│ ACK/NACK                 │ 4 Bytes          │
+├─────────────────────────────────────────────┤
+│ PAYLOAD                  │ 489 Bytes        │
+├─────────────────────────────────────────────┤
+│ CHECKSUM                 │ 1 Byte           │
+└─────────────────────────────────────────────┘
+
+================================================================================
+4. DESCRIPCIÓN DE CAMPOS
+========================
+
+FLAGS (2 Bytes)
+
+"01" → Primer paquete de una ráfaga.
+
+"00" → Paquete intermedio.
+
+"11" → Último paquete de una ráfaga.
+
+"10" → Paquete de control ACK/NACK.
+
+---
+
+SEQ (4 Bytes)
+
+Número de secuencia codificado en ASCII.
+
+Ejemplos:
+
+0000
+0001
+0002
+...
+9999
+
+Permite reconstruir el orden original de transmisión.
+
+---
+
+ACK/NACK (4 Bytes)
+
+Campo de confirmación.
+
+ACK:
+Indica el siguiente número de secuencia esperado.
+
+NACK:
+Solicita la retransmisión de un paquete perdido o corrupto.
+
+---
+
+PAYLOAD (489 Bytes)
+
+Contiene:
+
+* Fragmentos del dataset.
+* Pesos de la red neuronal.
+* Gradientes calculados.
+
+Si la información transmitida ocupa menos de 489 bytes,
+el espacio restante es rellenado mediante el carácter '#'.
+
+---
+
+CHECKSUM (1 Byte)
+
+Se calcula mediante:
+
+Checksum = (Σ bytes[0..498]) mod 256
+
+El receptor recalcula el valor y lo compara con el byte recibido.
+
+Si ambos valores difieren, el paquete se considera corrupto.
+
+================================================================================
+5. MECANISMOS DE CONFIABILIDAD
+==============================
+
+5.1 Detección de Errores
+
+Todos los paquetes son validados mediante checksum.
+
+Paquetes corruptos son descartados inmediatamente.
+
+---
+
+5.2 Control de Orden
+
+Los paquetes son reordenados utilizando el campo SEQ.
+
+---
+
+5.3 ACK
+
+Cuando un paquete es recibido correctamente, el receptor envía
+una confirmación positiva.
+
+---
+
+5.4 NACK
+
+Cuando se detecta:
+
+* Corrupción.
+* Pérdida.
+* Salto de secuencia.
+
+el receptor solicita retransmisión inmediata.
+
+---
+
+5.5 Timeout
+
+El emisor mantiene temporizadores para detectar pérdidas.
+
+La expiración del timeout provoca retransmisión automática.
+
+---
+
+5.6 Algoritmo de Karn
+
+Las muestras RTT son calculadas únicamente sobre transmisiones
+exitosas sin retransmisión.
+
+Las retransmisiones no participan en la estimación.
+
+---
+
+5.7 Exponential Backoff
+
+Ante expiraciones consecutivas:
+
+Timeout_nuevo = 2 × Timeout_actual
+
+reduciendo la probabilidad de congestión.
+
+================================================================================
+6. APLICACIÓN AL ENTRENAMIENTO DISTRIBUIDO
+==========================================
+
+Fase 1:
+Distribución del dataset.
+
+Fase 2:
+Distribución de pesos iniciales.
+
+Fase 3:
+Entrenamiento local en cada esclavo.
+
+Fase 4:
+Transmisión de gradientes al maestro.
+
+Fase 5:
+Promedio de gradientes en rdt_master.cpp.
+
+Fase 6:
+Actualización global mediante PyTorch.
+
+================================================================================
+FIN DE LA ESPECIFICACIÓN
+========================
