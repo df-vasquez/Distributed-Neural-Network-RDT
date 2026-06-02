@@ -1,105 +1,195 @@
-UNIVERSIDAD CATÓLICA SAN PABLO  
-DEPARTAMENTO DE CIENCIA DE LA COMPUTACIÓN  
-CURSO: Redes y Comunicaciones  
-DOCENTE: Dr. Julio Santisteban Pablo  
+PROYECTO: Protocolo RDT-UDP para Entrenamiento Distribuido de Redes Neuronales
 
-PROYECTO: Entrenamiento Distribuido de una Red Neuronal sobre UDP con Protocolo RDT
+--------------------------------------------------------------------
 
-INTEGRANTES:
-- Jorge Chávez
-- José Cornejo
-- Mariela Mendoza
-- Diego Vásquez
+1. OBJETIVO
 
----------------------------------------------------------------------
+El objetivo de este documento es definir un protocolo de transferencia confiable
+(RDT-UDP) implementado en la capa de aplicación sobre UDP.
 
-1. DESCRIPCIÓN GENERAL
+Este protocolo permite construir un canal confiable sobre un medio no confiable,
+incorporando mecanismos de:
 
-Se implementa un protocolo de comunicación confiable sobre UDP denominado RDT-UDP,
-orientado a soportar el intercambio de datos en un sistema de entrenamiento
-distribuido de una red neuronal bajo arquitectura tipo Parameter Server.
+- Control de errores
+- Control de orden
+- Confirmación de recepción
+- Retransmisión de paquetes perdidos
+- Detección de corrupción de datos
 
-El protocolo añade confiabilidad a UDP mediante control de errores, orden,
-confirmación de recepción y retransmisión de paquetes.
+El diseño está orientado a su implementación directa en C++ usando sockets.
 
----------------------------------------------------------------------
+--------------------------------------------------------------------
 
-2. ARQUITECTURA DEL SISTEMA
+2. MODELO DE RED
 
-El sistema está compuesto por:
+La arquitectura del sistema corresponde a un modelo tipo Parameter Server:
 
-- Un nodo maestro encargado de la coordinación del entrenamiento.
-- Tres nodos esclavos encargados del cómputo local.
+- 1 Nodo Maestro (servidor central)
+- 3 Nodos Esclavos (workers distribuidos)
 
-El nodo maestro distribuye datos y parámetros, y consolida los gradientes
-producidos por los nodos esclavos.
+El sistema opera de forma síncrona, donde el maestro coordina el flujo completo
+del entrenamiento distribuido.
 
----------------------------------------------------------------------
+--------------------------------------------------------------------
 
-3. FORMATO DEL DATAGRAMA
+3. UNIDAD DE TRANSMISIÓN (DATAGRAMA)
 
-Cada paquete tiene un tamaño fijo de 500 bytes con la siguiente estructura:
+Cada mensaje del protocolo tiene un tamaño fijo obligatorio:
 
-- FLAGS (2 bytes): tipo de paquete.
-- SEQ (4 bytes): número de secuencia.
-- ACK/NACK (4 bytes): confirmación o solicitud de retransmisión.
-- PAYLOAD (489 bytes): datos de la aplicación.
-- CHECKSUM (1 byte): verificación de integridad.
+500 bytes exactos
 
----------------------------------------------------------------------
+Estructura del datagrama:
+
+Bytes 0 - 1    → FLAGS (2 bytes)
+Bytes 2 - 5    → SEQ (4 bytes)
+Bytes 6 - 9    → ACK/NACK (4 bytes)
+Bytes 10 - 498 → PAYLOAD (489 bytes)
+Byte 499       → CHECKSUM (1 byte)
+
+--------------------------------------------------------------------
 
 4. DESCRIPCIÓN DE CAMPOS
 
-FLAGS:
-Indica el tipo de paquete:
-- Inicio de transmisión
-- Paquete intermedio
-- Fin de transmisión
-- Paquete de control (ACK/NACK)
+4.1 FLAGS (2 bytes)
 
-SEQ:
-Número de secuencia del paquete para control de orden y detección de pérdidas.
+Define el tipo de paquete:
 
-ACK/NACK:
-Indica el siguiente paquete esperado o solicita retransmisión de un paquete
-específico en caso de error.
+- "01" → inicio de transmisión
+- "00" → paquete intermedio
+- "11" → fin de transmisión
+- "10" → paquete de control (ACK/NACK)
 
-PAYLOAD:
-Contiene los datos de la aplicación (dataset, parámetros o gradientes).
-Se rellena con padding cuando es necesario para mantener el tamaño fijo.
+Permite agrupar múltiples paquetes en una misma transmisión lógica.
 
-CHECKSUM:
-Valor de verificación calculado como la suma de los bytes del paquete módulo 256.
-Permite detectar corrupción de datos durante la transmisión.
+--------------------------------------------------------------------
 
----------------------------------------------------------------------
+4.2 SEQ (4 bytes)
+
+Número de secuencia del paquete en formato ASCII (0000–9999).
+
+Funciones:
+- Ordenar paquetes recibidos fuera de secuencia
+- Detectar pérdidas de paquetes
+- Permitir reensamblaje correcto del mensaje
+
+--------------------------------------------------------------------
+
+4.3 ACK / NACK (4 bytes)
+
+Campo de control de confirmación:
+
+- ACK: indica el siguiente paquete esperado
+- NACK: indica el paquete que debe retransmitirse
+
+Permite recuperación rápida sin depender del timeout.
+
+--------------------------------------------------------------------
+
+4.4 PAYLOAD (489 bytes)
+
+Contiene la información principal del sistema.
+
+Tipos de datos:
+
+- DATASET: fragmentos del conjunto de entrenamiento
+- WEIGHTS: parámetros del modelo neuronal
+- GRADIENTS: resultados del backward pass
+
+Si el contenido es menor a 489 bytes, se rellena con el carácter '#'.
+
+--------------------------------------------------------------------
+
+4.5 CHECKSUM (1 byte)
+
+Mecanismo de detección de errores.
+
+Se calcula como:
+
+Checksum = (suma de bytes del datagrama [0..498]) mod 256
+
+Uso:
+- Detectar corrupción de datos
+- Validar integridad del paquete
+- Descartar tramas inválidas
+
+--------------------------------------------------------------------
 
 5. MECANISMOS DE CONFIABILIDAD
 
-El protocolo implementa los siguientes mecanismos:
+5.1 Detección de errores
+Se utiliza CHECKSUM para validar la integridad de cada paquete recibido.
 
-- Detección de errores mediante checksum.
-- Control de orden mediante números de secuencia.
-- Confirmación de recepción mediante ACK.
-- Detección de pérdidas mediante NACK.
-- Retransmisión mediante temporizador (timeout con select).
-- Estimación de RTT basada en el algoritmo de Karn.
-- Control de congestión mediante backoff exponencial.
+Si el checksum no coincide, el paquete es descartado.
 
----------------------------------------------------------------------
+--------------------------------------------------------------------
 
-6. APLICACIÓN AL ENTRENAMIENTO DISTRIBUIDO
+5.2 Control de orden
+El campo SEQ permite reconstruir el orden correcto de los paquetes
+en caso de llegada desordenada (propio de UDP).
 
-El protocolo se utiliza para:
+--------------------------------------------------------------------
 
-- Distribuir el dataset entre el nodo maestro y los nodos esclavos.
-- Enviar parámetros iniciales del modelo.
-- Transmitir gradientes desde los esclavos hacia el maestro.
-- Garantizar sincronización en el entrenamiento distribuido.
+5.3 ACK (Confirmación positiva)
+El receptor envía un ACK indicando el siguiente paquete esperado.
 
-El sistema realiza una única época de entrenamiento con agregación centralizada
-de gradientes en el nodo maestro.
+Esto permite al emisor avanzar la ventana de envío.
 
----------------------------------------------------------------------
+--------------------------------------------------------------------
+
+5.4 NACK (Confirmación negativa)
+Si se detecta pérdida o corrupción, el receptor solicita retransmisión
+del paquete específico mediante su número de secuencia.
+
+--------------------------------------------------------------------
+
+5.5 TIMEOUT (select)
+
+El emisor utiliza la función select() para implementar temporización no bloqueante.
+
+Si no recibe respuesta en el tiempo definido:
+- Se considera pérdida
+- Se retransmite el último paquete enviado
+
+--------------------------------------------------------------------
+
+5.6 ALGORITMO DE KARN
+
+El RTT (Round Trip Time) se calcula únicamente con transmisiones exitosas
+sin retransmisión.
+
+Esto evita mediciones incorrectas causadas por paquetes duplicados o retrasados.
+
+--------------------------------------------------------------------
+
+5.7 BACKOFF EXPONENCIAL
+
+Si ocurren fallos consecutivos:
+
+Timeout = Timeout * 2
+
+Esto reduce la congestión y estabiliza la transmisión en la red local.
+
+--------------------------------------------------------------------
+
+6. FLUJO DEL PROTOCOLO EN EL SISTEMA
+
+1. El maestro divide el dataset en partes iguales.
+2. Envía cada parte a los nodos esclavos mediante RDT-UDP.
+3. Envía los pesos iniciales del modelo.
+4. Cada esclavo ejecuta entrenamiento local.
+5. Los esclavos envían gradientes al maestro.
+6. El maestro valida, reordena y promedia gradientes.
+7. Se actualiza el modelo global.
+
+--------------------------------------------------------------------
+
+7. CONSIDERACIONES DE IMPLEMENTACIÓN
+
+- Todos los paquetes deben tener exactamente 500 bytes.
+- El orden de bytes es estrictamente obligatorio.
+- El checksum se valida antes de procesar el payload.
+- El sistema debe ser tolerante a pérdida y desorden de paquetes.
+
+--------------------------------------------------------------------
 
 FIN DEL DOCUMENTO
