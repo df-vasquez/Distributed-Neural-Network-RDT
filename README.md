@@ -1,86 +1,248 @@
-# Red Neuronal Distribuida sobre el Protocolo RDT-UDP
+# Entrenamiento Distribuido de una Red Neuronal sobre un Protocolo RDT Implementado en UDP
 
-* **Departamento:** Ciencia de la Computación
-* **Curso:** Redes y Comunicaciones
-* **Docente:** Dr. Julio Santisteban Pablo
-* **Integrantes:**
-  * Jorge Chávez
-  * José Cornejo
-  * Mariela Mendoza
-  * Diego Vásquez
+**Universidad Católica San Pablo**
+**Departamento de Ciencia de la Computación**
+**Curso:** Redes y Comunicaciones
+**Docente:** Dr. Julio Santisteban Pablo
 
----
+## Integrantes
 
-## 1. Descripción del Proyecto
-
-Este software implementa el entrenamiento síncrono de una red neuronal artificial para la clasificación de diabetes bajo la arquitectura de paralelismo de datos (Data Parallelism). El sistema está configurado de forma fija para un entorno de **1 Nodo Maestro y 3 Nodos Esclavos**. 
-
-La transferencia de datos del dataset, coeficientes de pesos y matrices de gradientes se realiza sobre el protocolo de transporte UDP. Para dotar al canal de confiabilidad, control de orden, temporización y detección de errores, se programó un protocolo RDT personalizado de 500 bytes en C++, el cual se enlaza al entorno de ejecución de PyTorch en Python mediante módulos compilados con Pybind11.
+* Jorge Chávez
+* José Cornejo
+* Marela Mendoza
+* Diego Vásquez
 
 ---
 
-## 2. Estructura de Directorios
+# 1. Descripción General
 
+Este proyecto implementa un sistema de entrenamiento distribuido para una red neuronal artificial destinada a la clasificación de diabetes utilizando la estrategia de **Data Parallelism**.
+
+La arquitectura está compuesta por un **Nodo Maestro** y **tres Nodos Esclavos**, los cuales cooperan para ejecutar una única época de entrenamiento de manera síncrona.
+
+La comunicación entre nodos se realiza mediante el protocolo **UDP**. Debido a que UDP no garantiza entrega confiable, ordenamiento ni control de errores, se desarrolló una capa de transporte confiable inspirada en los protocolos **Reliable Data Transfer (RDT)** estudiados en Kurose y Ross.
+
+Esta capa incorpora:
+
+* Numeración de secuencias.
+* ACK y NACK.
+* Checksum.
+* Retransmisión por timeout.
+* Algoritmo de Karn.
+* Exponential Backoff.
+
+---
+
+# 2. Arquitectura del Sistema
+
+```text
+                  ┌─────────────────────┐
+                  │    Nodo Maestro     │
+                  │     maestro.py      │
+                  └──────────┬──────────┘
+                             │
+       ┌─────────────────────┼─────────────────────┐
+       │                     │                     │
+       ▼                     ▼                     ▼
+
+ ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
+ │ Esclavo 1   │      │ Esclavo 2   │      │ Esclavo 3   │
+ │ esclavo.py  │      │ esclavo.py  │      │ esclavo.py  │
+ └─────────────┘      └─────────────┘      └─────────────┘
+
+              Comunicación UDP + RDT
 ```
+
+La arquitectura sigue el modelo **Parameter Server**, donde el nodo maestro coordina la ejecución, distribuye los datos, recibe los gradientes calculados por los esclavos y realiza la actualización global del modelo.
+
+---
+
+# 3. Integración Python–C++
+
+El sistema se divide en dos capas complementarias:
+
+## Capa de Inteligencia Artificial (Python)
+
+Implementada con PyTorch.
+
+Responsabilidades:
+
+* Lectura del dataset.
+* Construcción de la red neuronal.
+* Forward Pass.
+* Backward Pass.
+* Optimización del modelo.
+* Métricas y visualización.
+
+## Capa de Comunicación (C++)
+
+Implementada mediante sockets UDP.
+
+Responsabilidades:
+
+* Fragmentación de datos.
+* Encapsulación RDT.
+* Checksum.
+* ACK/NACK.
+* Timeout.
+* Retransmisiones.
+* Reensamblado.
+* Agregación de gradientes.
+
+## Puente Python ↔ C++
+
+La comunicación entre ambas capas se realiza mediante **Pybind11**.
+
+Los módulos:
+
+* `rdt_master.cpp`
+* `rdt_slave.cpp`
+
+son compilados como extensiones nativas e importados directamente desde Python.
+
+De esta manera, PyTorch puede utilizar las funciones de comunicación implementadas en C++ sin abandonar el entorno Python.
+
+---
+
+# 4. Estructura del Proyecto
+
+```text
 proyecto_ia_distribuida/
-┃
-┣ 📂 dataset/
-┃ ┗  Diabetes.csv               # Conjunto de datos (1000 registros / 14 características)
-┃
-┣ 📂 maestro/
-┃ ┣  rdt_master.cpp             # Lógica RDT en C++ y promedio matemático de matrices
-┃ ┣  rdt_master.hpp             # Cabeceras del nodo maestro
-┃ ┣  setup.py                   # Script de compilación Pybind11 Maestro
-┃ ┗  maestro.py                 # Orquestador del entrenamiento e interfaz de usuario PyTorch
-┃
-┗ 📂 esclavo/
-  ┣  rdt_slave.cpp              # Lógica RDT en C++ de transmisión y recepción
-  ┣  rdt_slave.hpp              # Cabeceras del nodo esclavo
-  ┣  setup.py                   # Script de compilación Pybind11 Esclavo
-  ┗  esclavo.py                 # IA Esclavo (Cómputo local de Forward y Backward Pass)
+│
+├── dataset/
+│   └── Diabetes.csv
+│
+├── maestro/
+│   ├── rdt_master.cpp
+│   ├── rdt_master.hpp
+│   ├── setup.py
+│   └── maestro.py
+│
+├── esclavo/
+│   ├── rdt_slave.cpp
+│   ├── rdt_slave.hpp
+│   ├── setup.py
+│   └── esclavo.py
+│
+└── Protocolo.txt
 ```
-Las especificaciones detalladas del formato del datagrama de 500 bytes, campos ACK/NACK, la lógica del Checksum al final de la trama y la implementación del algoritmo de Karn para el control de pérdidas por Timeout se encuentran documentadas en el archivo independiente Protocolo.txt.
 
-3. Instalación y Compilación
-3.1. Instalación de Dependencias
-Ejecutar el gestor de paquetes en las 4 estaciones de trabajo destinadas a la prueba:
+---
 
-```Bash
+# 5. Flujo de Ejecución
+
+## Fase 1: Distribución del Dataset
+
+El maestro divide el dataset en cuatro particiones homogéneas.
+
+* Una partición permanece en el maestro.
+* Tres particiones son enviadas a los esclavos.
+
+## Fase 2: Sincronización de Pesos
+
+El maestro inicializa la red neuronal y transmite los pesos iniciales a todos los esclavos.
+
+## Fase 3: Cómputo Distribuido
+
+Cada esclavo ejecuta:
+
+* Forward Pass
+* Backward Pass
+* Cálculo de gradientes locales
+
+## Fase 4: Reducción de Gradientes
+
+Los gradientes son enviados al maestro mediante RDT-UDP.
+
+El módulo `rdt_master.cpp`:
+
+* valida checksums,
+* reordena secuencias,
+* recupera pérdidas,
+* promedia gradientes.
+
+## Fase 5: Actualización Global
+
+El gradiente promedio es entregado a PyTorch para ejecutar:
+
+```python
+optimizer.step()
+```
+
+completando la única época de entrenamiento.
+
+---
+
+# 6. Instalación
+
+```bash
 pip install torch pandas scikit-learn matplotlib pybind11 setuptools
 ```
-3.2. Compilación del Módulo Puente C++ (Pybind11)
-En la Computadora Maestra:
 
-```Bash
+---
+
+# 7. Compilación
+
+## Maestro
+
+```bash
 cd maestro
 python setup.py build_ext --inplace
 ```
-En las 3 Computadoras Esclavas:
 
-```Bash
+## Esclavos
+
+```bash
 cd esclavo
 python setup.py build_ext --inplace
 ```
-4. Protocolo de Ejecución en Red
-Para garantizar la correcta sincronización de los sockets y evitar pérdidas por falta de escucha, el orden de arranque debe ser el siguiente:
 
-Paso 1: Inicialización de los 3 Esclavos
-Ejecutar el script principal en las 3 computadoras esclavas para levantar los sockets de escucha e inicializar los entornos locales de cómputo:
+---
 
-```Bash
+# 8. Ejecución
+
+## Paso 1
+
+Iniciar los tres esclavos:
+
+```bash
 python esclavo.py
 ```
-Paso 2: Inicialización del Maestro
-Una vez constatado el estado de escucha de los 3 esclavos en el laboratorio, iniciar el proceso central en la máquina maestra:
 
-```Bash
+## Paso 2
+
+Iniciar el maestro:
+
+```bash
 python maestro.py
 ```
-5. Resultados del Entrenamiento
-Al concluir la única época de entrenamiento distribuido y completarse la agregación de gradientes en el puente C++, la consola del Maestro desplegará:
 
-Métrica de exactitud global del modelo unificado (Accuracy score).
+---
 
-Reporte técnico estructurado de rendimiento (Precision, Recall y F1-Score por clase).
+# 9. Resultados
 
-Interfaz visual con la curva descendente de la función de pérdida (Loss Graph) y la distribución de aciertos mediante la Matriz de Confusión
+Al finalizar el entrenamiento se muestran:
+
+* Accuracy.
+* Precision.
+* Recall.
+* F1-Score.
+* Curva de pérdida.
+* Matriz de confusión.
+
+---
+
+# 10. Relación con Kurose y Ross
+
+La implementación toma como referencia los mecanismos de confiabilidad estudiados en el capítulo de la capa de transporte de Kurose y Ross.
+
+Particularmente se emplean conceptos equivalentes a:
+
+* Detección de errores mediante checksum.
+* Confirmaciones ACK/NACK.
+* Retransmisión por temporizador.
+* Estimación adaptativa de RTT.
+* Algoritmo de Karn.
+* Exponential Backoff.
+
+Con ello se construye una capa de transporte confiable sobre UDP para soportar el intercambio de datasets, pesos y gradientes durante el entrenamiento distribuido.
