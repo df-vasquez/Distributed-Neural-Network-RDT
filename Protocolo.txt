@@ -1,195 +1,210 @@
-PROYECTO:  Protocolo RDT-UDP para Entrenamiento Distribuido de Redes Neuronales
+Protocolo RDT-UDP para Entrenamiento Distribuido de Redes Neuronales
+---
 
---------------------------------------------------------------------
+## 1. Objetivo Técnico
 
-1. OBJETIVO
+Este documento especifica la arquitectura de una capa de transporte confiable personalizada (**RDT-UDP**) implementada sobre datagramas UDP en el espacio de aplicación. El protocolo incorpora mecanismos de confiabilidad para mitigar las limitaciones inherentes de UDP, tales como:
 
-El objetivo de este documento es definir un protocolo de transferencia confiable
-(RDT-UDP) implementado en la capa de aplicación sobre UDP.
+* Pérdida de paquetes
+* Retrasos extremos
+* Corrupción de datos por ruido en el canal
 
-Este protocolo permite construir un canal confiable sobre un medio no confiable,
-incorporando mecanismos de:
+La implementación sigue de forma estricta el autómata del protocolo **RDT 3.0 (Stop-and-Wait).
 
-- Control de errores
-- Control de orden
-- Confirmación de recepción
-- Retransmisión de paquetes perdidos
-- Detección de corrupción de datos
+---
 
-El diseño está orientado a su implementación directa en C++ usando sockets.
+## 2. Especificación de la Unidad de Transmisión (Datagrama de 522 bytes)
 
---------------------------------------------------------------------
+Para evitar desalineamientos en búferes y fragmentación en la capa IP, se define un formato binario fijo mediante estructuras empaquetadas (`__attribute__((packed))`).
 
-2. MODELO DE RED
+Cada datagrama tiene un tamaño exacto de **522 bytes**.
 
-La arquitectura del sistema corresponde a un modelo tipo Parameter Server:
+---
 
-- 1 Nodo Maestro (servidor central)
-- 3 Nodos Esclavos (workers distribuidos)
+### Estructura del Datagrama RDT
 
-El sistema opera de forma síncrona, donde el maestro coordina el flujo completo
-del entrenamiento distribuido.
+```
++-----------+--------------+---------+--------------------------------------+
+| Campo     | Tipo         | Tamaño  | Descripción                          |
++-----------+--------------+---------+--------------------------------------+
+| FLAGS     | uint8_t      | 1 byte  | Tipo de trama                       |
+| SEQ_NUM   | uint32_t     | 4 bytes | Número de secuencia                 |
+| DATA_LEN  | uint32_t     | 4 bytes | Tamaño del payload útil             |
+| PAYLOAD   | char[512]    | 512 B   | Datos o métricas serializadas       |
+| CHECKSUM  | uint8_t      | 1 byte  | Verificación de integridad          |
++-----------+--------------+---------+--------------------------------------+
+```
 
---------------------------------------------------------------------
+---
 
-3. UNIDAD DE TRANSMISIÓN (DATAGRAMA)
+## 3. Descripción de Campos
 
-Cada mensaje del protocolo tiene un tamaño fijo obligatorio:
+---
 
-500 bytes exactos
+### 3.1 FLAGS (uint8_t)
 
-Estructura del datagrama:
+Define el tipo de operación del paquete dentro de la máquina de estados:
 
-Bytes 0 - 1    → FLAGS (2 bytes)
-Bytes 2 - 5    → SEQ (4 bytes)
-Bytes 6 - 9    → ACK/NACK (4 bytes)
-Bytes 10 - 498 → PAYLOAD (489 bytes)
-Byte 499       → CHECKSUM (1 byte)
+* `1 (START)` → Inicio de transmisión y reinicio de buffers
+* `2 (DATA)` → Fragmento de datos del flujo principal
+* `3 (END)` → Finalización del envío
+* `4 (ACK)` → Confirmación de recepción exitosa
 
---------------------------------------------------------------------
+---
 
-4. DESCRIPCIÓN DE CAMPOS
+### 3.2 SEQ_NUM (uint32_t)
 
-4.1 FLAGS (2 bytes)
+Número de secuencia incremental (0, 1, 2, ...).
 
-Define el tipo de paquete:
+Permite:
 
-- "01" → inicio de transmisión
-- "00" → paquete intermedio
-- "11" → fin de transmisión
-- "10" → paquete de control (ACK/NACK)
+* Detección de duplicados
+* Eliminación de paquetes redundantes
+* Control de orden en esquema Stop-and-Wait
 
-Permite agrupar múltiples paquetes en una misma transmisión lógica.
+---
 
---------------------------------------------------------------------
+### 3.3 DATA_LEN (uint32_t)
 
-4.2 SEQ (4 bytes)
+Indica la cantidad exacta de bytes válidos dentro del `PAYLOAD` (0–512).
 
-Número de secuencia del paquete en formato ASCII (0000–9999).
+Evita la interpretación de datos residuales del buffer del sistema operativo.
 
-Funciones:
-- Ordenar paquetes recibidos fuera de secuencia
-- Detectar pérdidas de paquetes
-- Permitir reensamblaje correcto del mensaje
+---
 
---------------------------------------------------------------------
+### 3.4 PAYLOAD (char[512])
 
-4.3 ACK / NACK (4 bytes)
+Buffer principal de transmisión.
 
-Campo de control de confirmación:
+Transporta dos tipos de datos:
 
-- ACK: indica el siguiente paquete esperado
-- NACK: indica el paquete que debe retransmitirse
+* Fragmentos del dataset `Diabetes.csv`
+* Estructuras JSON con métricas:
 
-Permite recuperación rápida sin depender del timeout.
+  * `batch_losses`
+  * `batch_accuracies`
+  * `y_true`
+  * `y_pred`
 
---------------------------------------------------------------------
+---
 
-4.4 PAYLOAD (489 bytes)
+### 3.5 CHECKSUM (uint8_t)
 
-Contiene la información principal del sistema.
+Mecanismo de detección de errores basado en suma modular:
 
-Tipos de datos:
+```
+Checksum =
+(FLAGS + SEQ_NUM + DATA_LEN + Σ(PAYLOAD)) mod 256
+```
 
-- DATASET: fragmentos del conjunto de entrenamiento
-- WEIGHTS: parámetros del modelo neuronal
-- GRADIENTS: resultados del backward pass
+Permite detectar:
 
-Si el contenido es menor a 489 bytes, se rellena con el carácter '#'.
+* Corrupción de bits
+* Alteraciones en tránsito
+* Errores de buffer
 
---------------------------------------------------------------------
+---
 
-4.5 CHECKSUM (1 byte)
+## 4. Máquina de Estados y Confiabilidad (Kurose-Ross)
 
-Mecanismo de detección de errores.
+---
 
-Se calcula como:
+### 4.1 Detección de Corrupción
 
-Checksum = (suma de bytes del datagrama [0..498]) mod 256
+Al recibir un datagrama:
 
-Uso:
-- Detectar corrupción de datos
-- Validar integridad del paquete
-- Descartar tramas inválidas
+* Se recalcula el checksum en C++
+* Si no coincide con `pkt.checksum`, el paquete se descarta
+* No se altera el estado interno del receptor
 
---------------------------------------------------------------------
+---
 
-5. MECANISMOS DE CONFIABILIDAD
+### 4.2 Protocolo Stop-and-Wait
 
-5.1 Detección de errores
-Se utiliza CHECKSUM para validar la integridad de cada paquete recibido.
+El emisor sigue este ciclo:
 
-Si el checksum no coincide, el paquete es descartado.
+1. Envía paquete con `SEQ_NUM = N`
+2. Detiene ejecución
+3. Espera ACK válido (`FLAGS = 4`, `SEQ_NUM = N`)
+4. Solo entonces envía `N+1`
 
---------------------------------------------------------------------
+---
 
-5.2 Control de orden
-El campo SEQ permite reconstruir el orden correcto de los paquetes
-en caso de llegada desordenada (propio de UDP).
+### 4.3 Control de Tiempo con `select()`
 
---------------------------------------------------------------------
+Después de cada envío:
 
-5.3 ACK (Confirmación positiva)
-El receptor envía un ACK indicando el siguiente paquete esperado.
+* Se activa un timeout de **200 ms**
+* Si no llega ACK:
 
-Esto permite al emisor avanzar la ventana de envío.
+  * Se asume pérdida de paquete o ACK
+  * Se retransmite el paquete
+  * Se incrementa contador `retries`
 
---------------------------------------------------------------------
+**Límite máximo:** 15 retransmisiones
+Si se excede → aborto del sistema por seguridad
 
-5.4 NACK (Confirmación negativa)
-Si se detecta pérdida o corrupción, el receptor solicita retransmisión
-del paquete específico mediante su número de secuencia.
+---
 
---------------------------------------------------------------------
+### 4.4 Manejo Implícito de NACK
 
-5.5 TIMEOUT (select)
+No se utilizan NACK explícitos.
 
-El emisor utiliza la función select() para implementar temporización no bloqueante.
+En su lugar:
 
-Si no recibe respuesta en el tiempo definido:
-- Se considera pérdida
-- Se retransmite el último paquete enviado
+* El receptor detecta paquetes fuera de orden o duplicados
+* Reenvía el último ACK válido (`expected_seq - 1`)
+* El emisor interpreta esto como fallo implícito tras timeout
 
---------------------------------------------------------------------
+---
 
-5.6 ALGORITMO DE KARN
+## 5. Flujo de Trabajo del Clúster
 
-El RTT (Round Trip Time) se calcula únicamente con transmisiones exitosas
-sin retransmisión.
+---
 
-Esto evita mediciones incorrectas causadas por paquetes duplicados o retrasados.
+### 5.1 Fase de Distribución
 
---------------------------------------------------------------------
+1. `maestro.py` divide `Diabetes.csv` en 3 particiones (~333 muestras cada una)
+2. Se transmiten a los nodos esclavos mediante RDT-UDP
 
-5.7 BACKOFF EXPONENCIAL
+---
 
-Si ocurren fallos consecutivos:
+### 5.2 Fase de Cómputo
 
-Timeout = Timeout * 2
+Cada esclavo:
 
-Esto reduce la congestión y estabiliza la transmisión en la red local.
+* Reconstruye el dataset en memoria
+* Inicializa modelo PyTorch
+* Entrena durante **1 época**
 
---------------------------------------------------------------------
+  * Forward pass
+  * CrossEntropyLoss
+  * Backpropagation
+  * Optimización (Adam)
 
-6. FLUJO DEL PROTOCOLO EN EL SISTEMA
+---
 
-1. El maestro divide el dataset en partes iguales.
-2. Envía cada parte a los nodos esclavos mediante RDT-UDP.
-3. Envía los pesos iniciales del modelo.
-4. Cada esclavo ejecuta entrenamiento local.
-5. Los esclavos envían gradientes al maestro.
-6. El maestro valida, reordena y promedia gradientes.
-7. Se actualiza el modelo global.
+### 5.3 Fase de Recolección
 
---------------------------------------------------------------------
+Cada nodo esclavo envía al maestro:
 
-7. CONSIDERACIONES DE IMPLEMENTACIÓN
+* Loss por batch
+* Accuracy por batch
+* Predicciones (`y_true`, `y_pred`)
 
-- Todos los paquetes deben tener exactamente 500 bytes.
-- El orden de bytes es estrictamente obligatorio.
-- El checksum se valida antes de procesar el payload.
-- El sistema debe ser tolerante a pérdida y desorden de paquetes.
+---
 
---------------------------------------------------------------------
+### 5.4 Fase de Consolidación
 
-FIN DEL DOCUMENTO
+El nodo maestro:
+
+* Recibe métricas sin corrupción
+* Consolida resultados globales
+* Genera visualizaciones:
+
+  * Curvas de convergencia (Loss/Accuracy)
+  * Matriz de confusión global
+
+---
+
+##FIN DEL PROTOCOLO
