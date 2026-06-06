@@ -64,10 +64,10 @@ El sistema opera bajo una arquitectura síncrona descentralizada compuesta por:
         ┌────────────────────┼────────────────────┐
         │                    │                    │
         ▼                    ▼                    ▼
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  Esclavo 1  │     │  Esclavo 2  │     │  Esclavo 3  │
-│(Puerto 8001)│     │(Puerto 8002)│     │(Puerto 8003)│
-└─────────────┘     └─────────────┘     └─────────────┘
+┌─────────────┐       ┌─────────────┐      ┌─────────────┐
+│  Esclavo 1  │       │  Esclavo 2  │      │  Esclavo 3  │
+│(Puerto 8001)│       │(Puerto 8002)│      │(Puerto 8003)│
+└─────────────┘       └─────────────┘      └─────────────┘
 ```
 
 ---
