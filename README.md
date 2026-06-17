@@ -180,16 +180,53 @@ cd esclavo
 python3 esclavo.py 3
 ```
 
-### Terminal 4 — Maestro (último en ejecutarse)
+### Terminal n — Esclavo n
+
+```bash
+cd esclavo
+python3 esclavo.py n
+```
+
+### Terminal — Maestro (último en ejecutarse)
 
 ```bash
 cd maestro
-python3 maestro.py
+python3 maestro.py n
 ```
 
 ---
 
-## 7. Resultados y Visualizaciones
+## 7. Executores
+
+### Requisitos
+
+* gnome-terminal
+
+### Paso 1: Dar permisos a los .sh
+
+```bash
+chmod +x one_terminal.sh
+```
+
+```bash
+chmod +x multiple_terminal.sh
+```
+
+### Paso 2: Ejecutar
+
+Para ejecutar en una consola:
+
+```bash
+./one_terminal n
+```
+
+Para abrir multiples consolas:
+```bash
+./multiple_terminal n
+```
+
+
+## 8. Resultados y Visualizaciones
 
 Al finalizar la ejecución del protocolo confiable, el nodo maestro genera:
 
