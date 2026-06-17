@@ -1,3 +1,4 @@
+import sys
 import os
 import pandas as pd
 import io
@@ -8,6 +9,10 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import modulo_maestro_nativo
 
 def main():
+    if len(sys.argv) < 2:
+        print("Uso: python3 maestro.py <cantidad_esclavos>")
+        return
+
     print("=== INICIANDO NODO MAESTRO DISTRIBUIDO (RDT 3.0) ===")
     
     csv_path = "../dataset/Diabetes.csv"
@@ -21,7 +26,7 @@ def main():
     print(f"Dataset cargado correctamente. Total filas: {total_filas}")
 
     # 1. DIVIDIR EL DATASET EN 3 PARTES EQUITATIVAS
-    num_esclavos = 3
+    num_esclavos = int(sys.argv[1])
     filas_por_esclavo = total_filas // num_esclavos # 1000 // 3 = 333 filas aprox.
 
     partes_csv = []
@@ -39,11 +44,11 @@ def main():
     master = modulo_maestro_nativo.MasterRdt()
     master.init_master("127.0.0.1", 8000)
     
-    # Registrar los 3 esclavos en la capa nativa de C++
-    master.add_slave("127.0.0.1", 8001) # Índice 0 -> Esclavo 1
-    master.add_slave("127.0.0.1", 8002) # Índice 1 -> Esclavo 2
-    master.add_slave("127.0.0.1", 8003) # Índice 2 -> Esclavo 3
-    print("\nMaestro RDT inicializado en puerto 8000. Puertos esclavos registrados: 8001, 8002, 8003.")
+    # Registrar los n esclavos en la capa nativa de C++
+    for i in range(num_esclavos):
+        master.add_slave("127.0.0.1", 8001 + i)
+    print("\nMaestro RDT inicializado en puerto 8000.")
+    print(f"Puertos esclavos registrados: {[8001+i for i in range(num_esclavos)]}")
 
     # Listas para consolidar las métricas de todos los esclavos
     todos_los_losses_batches = []
