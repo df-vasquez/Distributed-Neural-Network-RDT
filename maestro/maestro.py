@@ -13,95 +13,94 @@ def main():
         print("Uso: python3 maestro.py <cantidad_esclavos>")
         return
 
-    print("=== INICIANDO NODO MAESTRO DISTRIBUIDO (RDT 3.0) ===")
+    print("\n" + "="*60)
+    print("INICIANDO COORDINADOR MAESTRO - ENTORNO DISTRIBUIDO RDT-UDP")
+    print("="*60)
     
     csv_path = "../dataset/Diabetes.csv"
     if not os.path.exists(csv_path):
         print(f"Error: No se encontró el dataset en {csv_path}")
         return
 
-    print(f"Cargando dataset desde: {csv_path}")
     df = pd.read_csv(csv_path)
     total_filas = len(df)
-    print(f"Dataset cargado correctamente. Total filas: {total_filas}")
+    print(f"SISTEMA: Dataset maestro cargado. Dimensiones del archivo: {total_filas} filas")
 
-    # 1. DIVIDIR EL DATASET EN 3 PARTES EQUITATIVAS
     num_esclavos = int(sys.argv[1])
-    filas_por_esclavo = total_filas // num_esclavos # 1000 // 3 = 333 filas aprox.
+    filas_por_esclavo = total_filas // num_esclavos
 
     partes_csv = []
     for i in range(num_esclavos):
         inicio = i * filas_por_esclavo
-        # El último esclavo se lleva el residuo si la división no es exacta
         fin = total_filas if i == (num_esclavos - 1) else (i + 1) * filas_por_esclavo
         
         df_fragmento = df.iloc[inicio:fin]
-        # Muy importante: mantener la cabecera original en cada string para que el esclavo la lea bien
         partes_csv.append(df_fragmento.to_csv(index=False))
-        print(f"-> Fragmento para Esclavo {i+1}: Filas desde la {inicio} hasta la {fin-1} (Total: {len(df_fragmento)})")
+        print(f"DISTRIBUCION: Fragmento asignado a Nodo {i+1} | Indices: {inicio} a {fin-1} | Volumen: {len(df_fragmento)} filas")
 
-    # 2. INICIALIZAR EL TRANSPORTE RDT DEL MAESTRO
     master = modulo_maestro_nativo.MasterRdt()
     master.init_master("127.0.0.1", 8000)
     
-    # Registrar los n esclavos en la capa nativa de C++
     for i in range(num_esclavos):
         master.add_slave("127.0.0.1", 8001 + i)
-    print("\nMaestro RDT inicializado en puerto 8000.")
-    print(f"Puertos esclavos registrados: {[8001+i for i in range(num_esclavos)]}")
 
-    # Listas para consolidar las métricas de todos los esclavos
     todos_los_losses_batches = []
     y_true_global = []
     y_pred_global = []
 
-    # 3. COMUNICACIÓN SECUENCIAL CON CADA ESCLAVO
+    # BUCLE 1: ENVIAR DATOS A TODOS (Esto despierta a ambos esclavos en paralelo)
+    print("\n" + "="*60)
+    print("FASE 1: DISTRIBUCION MASIVA SIMULTANEA (CONCURRENTE)")
+    print("="*60)
     for idx in range(num_esclavos):
         id_real = idx + 1
-        print(f"\n[Esclavo {id_real}] Enviando fragmento de datos por RDT 3.0...")
+        print(f"SISTEMA: Transmitiendo ráfagas de datos a Nodo {id_real}...")
         master.send_data_to_slave(idx, partes_csv[idx])
-        print(f"[Esclavo {id_real}] Datos enviados con éxito. Esperando métricas...")
+        print(f"ESTADO: Envío completado hacia Nodo {id_real}. Iniciando computo nativo en segundo plano.")
 
-        # Recibir JSON de respuesta del esclavo correspondiente
+    # BUCLE 2: RECOLECTAR RESULTADOS (Se ejecuta después de que ambos están procesando)
+    print("\n" + "="*60)
+    print("FASE 2: RECOLECCION ASINCRONA DE METRICAS FINALES")
+    print("="*60)
+    for idx in range(num_esclavos):
+        id_real = idx + 1
+        print(f"SISTEMA: Sincronizando y esperando stream JSON de Nodo {id_real}...")
         resultado_json_string = master.receive_data_from_slave(idx)
-        print(f"[Esclavo {id_real}] ¡Métricas recibidas!")
 
         try:
             metricas = json.loads(resultado_json_string)
-            print(f" -> Loss promedio reportado por Esclavo {id_real}: {metricas['epoch_loss']:.4f}")
+            print(f"LOG: Nodo {id_real} termino procesamiento. Pérdida reportada: {metricas['epoch_loss']:.4f}")
             
-            # Acumular datos para las gráficas globales
             todos_los_losses_batches.extend(metricas['batch_losses'])
             y_true_global.extend(metricas['y_true'])
             y_pred_global.extend(metricas['y_pred'])
 
         except Exception as e:
-            print(f"Error procesando respuesta del Esclavo {id_real}: {e}")
+            print(f"ERROR: Fallo critico al deserializar el stream del Nodo {id_real}: {e}")
 
-    # 4. GENERAR LOS GRÁFICOS CONSOLIDADOS DE LA RED NEURONAL DISTRIBUIDA
-    print("\n=== GENERANDO GRÁFICOS CONSOLIDADOS DE LA RED DISTRIBUIDA ===")
+    print("\n" + "="*60)
+    print("CONSOLIDACION MATEMATICA DEL CLUSTER DISTRIBUIDO")
+    print("="*60)
+    print(f"PROCESAMIENTO: Total de instancias recopiladas de la red: {len(y_true_global)}")
 
-    # Gráfico 1: Evolución de Pérdidas combinando los batches procesados por toda la red
     plt.figure(figsize=(10, 5))
-    plt.plot(todos_los_losses_batches, marker='o', color='orange', label='Batch loss (Distributed)')
-    plt.title("Evolución del Loss en la Red Distribuida (3 Esclavos - 1 Época)")
-    plt.xlabel("Iteración de Lote Acumulado")
+    plt.plot(todos_los_losses_batches, color='orange', label='Loss por lote distribuido')
+    plt.title(f"Convergencia de Perdidas del Cluster ({num_esclavos} Nodos)")
+    plt.xlabel("Iteracion de Lote Acumulado")
     plt.ylabel("Loss")
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
     plt.show()
 
-    # Gráfico 2: Matriz de Confusión Global (Suma del rendimiento de los 3 esclavos)
-    num_classes = 3
     cm_global = confusion_matrix(y_true_global, y_pred_global)
-    disp = ConfusionMatrixDisplay(confusion_matrix=cm_global, display_labels=list(range(num_classes)))
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm_global, display_labels=[0, 1, 2])
     disp.plot(cmap=plt.cm.Greens)
-    plt.title("Matriz de Confusión Global (Sistema Distribuido)")
+    plt.title(f"Matriz de Confusion Global Unificada")
     plt.tight_layout()
     plt.show()
 
-    print("=== PROCESO COMPLETO COMPLETADO CON EXITO ===")
+    print("SISTEMA: Ejecucion del cluster distribuido finalizada de forma exitosa")
 
 if __name__ == "__main__":
     main()

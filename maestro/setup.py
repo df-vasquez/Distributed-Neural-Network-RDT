@@ -5,7 +5,8 @@ ext_modules = [
     Extension(
         "modulo_maestro_nativo",
         ["rdt_master.cpp", "bindings.cpp"],
-        include_dirs=[pybind11.get_include()],
+        include_dirs=[pybind11.get_include(), "."],
+        extra_compile_args=['-std=c++11', '-pthread'],
         language='c++'
     ),
 ]

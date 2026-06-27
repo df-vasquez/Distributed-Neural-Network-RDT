@@ -5,7 +5,8 @@ ext_modules = [
     Extension(
         "modulo_esclavo_nativo",
         ["rdt_slave.cpp", "bindings.cpp"],
-        include_dirs=[pybind11.get_include()],
+        include_dirs=[pybind11.get_include(), "."],
+        extra_compile_args=['-std=c++11'],
         language='c++'
     ),
 ]

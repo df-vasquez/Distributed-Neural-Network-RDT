@@ -1,25 +1,34 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <queue>
+#include <thread>
+#include <mutex>
+#include <map>
 #include <netinet/in.h>
+#include "rdt_common.hpp"
 
 namespace rdt {
 
-struct __attribute__((packed)) RdtPacket {
-    uint8_t flags;       // 1: Inicio, 2: Datos, 3: Fin, 4: ACK
-    uint32_t seq_num;
-    uint32_t data_len;
-    char payload[512];
-    uint8_t checksum;
+struct SlaveNode {
+    int id;
+    struct sockaddr_in addr;
+    std::queue<RdtPacket> packet_queue;
+    std::mutex queue_mutex;
+    uint32_t expected_seq;
 };
 
 class MasterRdt {
 private:
     int socket_fd;
-    std::vector<struct sockaddr_in> slave_addrs;
+    std::vector<SlaveNode*> slaves;
     
-    uint8_t compute_checksum(const RdtPacket& pkt);
-    bool wait_for_ack(uint32_t expected_seq, struct sockaddr_in& target_slave);
+    // Hilo de recepción asíncrono y control de ciclo de vida
+    std::thread rx_thread;
+    bool keep_running;
+    
+    void background_receiver();
+    bool transmit_gbn_pipeline(SlaveNode* slave, const std::vector<RdtPacket>& pipeline_packets);
 
 public:
     MasterRdt();

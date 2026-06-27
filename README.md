@@ -74,7 +74,7 @@ El sistema opera bajo una arquitectura síncrona descentralizada compuesta por:
 
 ## 3. Modelo Matemático y Dataset
 
-El sistema utiliza el dataset `Diabetes.csv`, compuesto por aproximadamente 1000 muestras.
+El sistema utiliza el dataset `Diabetes.csv`, compuesto por 1000 muestras.
 
 ### Variables de entrada
 

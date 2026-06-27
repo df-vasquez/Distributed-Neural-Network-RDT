@@ -1,5 +1,6 @@
-.DS_Store
-*.so
-*.o
+__pycache__/
 build/
-.vscode/
+*.so
+*.pyd
+*.egg-info/
+.DS_Store

@@ -5,7 +5,7 @@
 namespace py = pybind11;
 
 PYBIND11_MODULE(modulo_maestro_nativo, m) {
-    m.doc() = "Modulo de Capa de Transporte RDT 3.0 para el Nodo Maestro";
+    m.doc() = "Modulo de Capa de Transporte RDT-UDP (Go-Back-N) para el Nodo Maestro";
 
     py::class_<rdt::MasterRdt>(m, "MasterRdt")
         .def(py::init<>())

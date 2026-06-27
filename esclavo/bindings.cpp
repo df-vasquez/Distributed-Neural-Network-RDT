@@ -5,7 +5,7 @@
 namespace py = pybind11;
 
 PYBIND11_MODULE(modulo_esclavo_nativo, m) {
-    m.doc() = "Modulo de Capa de Transporte RDT 3.0 para el Nodo Esclavo";
+    m.doc() = "Modulo de Capa de Transporte RDT-UDP (Go-Back-N) para el Nodo Esclavo";
 
     py::class_<rdt::SlaveRdt>(m, "SlaveRdt")
         .def(py::init<>())

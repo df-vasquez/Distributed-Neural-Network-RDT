@@ -32,20 +32,21 @@ def main():
     esclavo_id = sys.argv[1]
     puerto_local = 8000 + int(esclavo_id)
 
-    print(f"=== INICIANDO NODO ESCLAVO {esclavo_id} ===")
+    print(f"SISTEMA: Iniciando Nodo Esclavo {esclavo_id}")
     
     slave = modulo_esclavo_nativo.SlaveRdt()
     slave.init_slave("127.0.0.1", puerto_local)
-    print(f"Esclavo {esclavo_id} esperando datos por RDT 3.0...")
+    print(f"ESTADO: Esperando transmision de datos por canal RDT-UDP GBN")
 
     csv_data_string = slave.receive_data_from_master()
-    print("¡Dataset recibido con éxito! Entrenando y recolectando métricas...")
+    print("ESTADO: Segmento de dataset recibido de forma integra")
 
     df = pd.read_csv(io.StringIO(csv_data_string))
 
     input_dim = 11
     num_classes = 3
     batch_size = 50
+    num_epochs = 360
 
     X_np = df.iloc[:, :input_dim].values.astype(np.float32)
     y_onehot_np = df.iloc[:, -num_classes:].values.astype(np.float32)
@@ -60,47 +61,71 @@ def main():
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-    model.train()
-    
-    # Trackers idénticos a los del profesor para poder graficar
-    batch_losses = []
-    y_true_epoch = []
-    y_pred_epoch = []
-    epoch_loss = 0.0
+    batch_losses_tracker = []
+    y_true_final = []
+    y_pred_final = []
+    ultimo_promedio_loss = 0.0
 
-    for batch_x, batch_y in train_loader:
-        optimizer.zero_grad()
-        logits, log_vars = model(batch_x)
-        loss = criterion(logits, batch_y)
-        loss.backward()
-        optimizer.step()
+    print("PROCESAMIENTO: Inicializando ciclo de entrenamiento concurrente")
+
+    for epoch in range(num_epochs):
+        model.train()
+        epoch_loss = 0.0
+        total_gradient_norm = 0.0
+        num_batches = len(train_loader)
         
-        # Guardar la pérdida del lote actual (Mismo comportamiento que el tracker)
-        batch_losses.append(loss.item())
-        epoch_loss += loss.item()
+        # Variables temporales para calcular el accuracy real por época del set completo
+        epoch_correct = 0
+        epoch_total = 0
+        
+        for batch_x, batch_y in train_loader:
+            optimizer.zero_grad()
+            logits, log_vars = model(batch_x)
+            loss = criterion(logits, batch_y)
+            loss.backward()
+            
+            # Capturar la magnitud de las gradientes del lote
+            grad_norm = 0.0
+            for param in model.parameters():
+                if param.grad is not None:
+                    grad_norm += param.grad.data.norm(2).item() ** 2
+            grad_norm = grad_norm ** 0.5
+            total_gradient_norm += grad_norm
+            
+            optimizer.step()
+            epoch_loss += loss.item()
+            
+            # Calcular métricas de entrenamiento
+            predictions = torch.argmax(logits, dim=1)
+            epoch_correct += (predictions == torch.argmax(batch_y, dim=1)).sum().item()
+            epoch_total += batch_x.size(0)
+            
+            # Guardar predicciones de la última época para la matriz global
+            if epoch == (num_epochs - 1):
+                batch_losses_tracker.append(loss.item())
+                y_true_final.extend(torch.argmax(batch_y, dim=1).tolist())
+                y_pred_final.extend(predictions.tolist())
 
-        # Extraer predicciones reales vs esperadas para la matriz de confusión del profesor
-        predictions = torch.argmax(logits, dim=1)
-        y_true_epoch.extend(torch.argmax(batch_y, dim=1).tolist())
-        y_pred_epoch.extend(predictions.tolist())
+        ultimo_promedio_loss = epoch_loss / num_batches
+        promedio_gradient_norm = total_gradient_norm / num_batches
+        epoch_accuracy = epoch_correct / epoch_total
+        
+        print(f"PROCESAMIENTO: Epoca {epoch+1:03d}/{num_epochs} | Loss: {ultimo_promedio_loss:.4f} | Accuracy: {epoch_accuracy:.4f} | Grad Norm: {promedio_gradient_norm:.4f}")
 
-    promedio_loss = epoch_loss / len(train_loader)
-    print(f"Entrenamiento completado. Loss Promedio: {promedio_loss:.4f}")
+    print(f"\nESTADO: Entrenamiento completado con exito en el Nodo Esclavo {esclavo_id}")
 
-    # Empaquetamos todo en una estructura estructurada segura (JSON) para que viaje limpio por la red
     payload_graficas = {
-        "epoch_loss": promedio_loss,
-        "batch_losses": batch_losses,
-        "y_true": y_true_epoch,
-        "y_pred": y_pred_epoch
+        "epoch_loss": ultimo_promedio_loss,
+        "batch_losses": batch_losses_tracker,
+        "y_true": y_true_final,
+        "y_pred": y_pred_final
     }
     
-    # Convertimos a string plano puro (sin bytes extraños) para enviar por RDT 3.0
     reporte_json = json.dumps(payload_graficas)
 
-    print("Enviando trackers y matrices de vuelta al Maestro por RDT 3.0...")
+    print("ESTADO: Desplegando ráfagas GBN para el retorno del stream metrico JSON")
     slave.send_data_to_master(reporte_json)
-    print("¡Proceso terminado en el esclavo!")
+    print("SISTEMA: Cierre seguro del nodo esclavo")
 
 if __name__ == "__main__":
     main()
