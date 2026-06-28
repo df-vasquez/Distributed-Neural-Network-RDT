@@ -175,13 +175,13 @@ Una vez que todos los esclavos se encuentren en estado de espera, abrir otra ter
 ```bash
 cd maestro
 source ../venv/bin/activate
-python3 maestro.py <NUM_ESCLAVOS>
+python3 maestro.py <NUM_ESCLAVOS> <SUFFLE_BOOL>
 ```
 
-Ejemplo para tres esclavos:
+Ejemplo para tres esclavos sin mezclado en dataset:
 
 ```bash
-python3 maestro.py 3
+python3 maestro.py 3 0
 ```
 
 ---
@@ -197,10 +197,10 @@ chmod +x multiple_terminal.sh
 
 #### `one_terminal.sh`
 
-Inicia automáticamente los esclavos en segundo plano y posteriormente ejecuta el maestro en la terminal actual.
+Inicia automáticamente los esclavos en segundo plano y posteriormente ejecuta el maestro en la terminal actual sin mezclado de datos.
 
 ```bash
-./one_terminal.sh 3
+./one_terminal.sh 3 0
 ```
 
 #### `multiple_terminal.sh`
@@ -208,10 +208,10 @@ Inicia automáticamente los esclavos en segundo plano y posteriormente ejecuta e
 > [!WARNING]
 > Este script utiliza `gnome-terminal`, por lo que solo es compatible con **Linux** o **WSL con soporte gráfico**.
 
-Abre una terminal independiente para cada esclavo, espera unos segundos para permitir su inicialización y finalmente ejecuta el maestro.
+Abre una terminal independiente para cada esclavo, espera unos segundos para permitir su inicialización y finalmente ejecuta el maestro sin mezclado de datos.
 
 ```bash
-./multiple_terminal.sh 3
+./multiple_terminal.sh 3 0
 ```
 
 ---

@@ -9,8 +9,8 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import modulo_maestro_nativo
 
 def main():
-    if len(sys.argv) < 2:
-        print("Uso: python3 maestro.py <cantidad_esclavos>")
+    if len(sys.argv) < 3:
+        print("Uso: python3 maestro.py <cantidad_esclavos> <suffle_bool>")
         return
 
     print("\n" + "="*60)
@@ -23,6 +23,14 @@ def main():
         return
 
     df = pd.read_csv(csv_path)
+
+    shuffle_flag = int(sys.argv[2])
+
+    if shuffle_flag == 1:
+        df = df.sample(frac=1, random_state=5).reset_index(drop=True)
+        print("SISTEMA: Dataset mezclado (shuffle ON)")
+    else:
+        print("SISTEMA: Dataset SIN mezclar (shuffle OFF)")
     total_filas = len(df)
     print(f"SISTEMA: Dataset maestro cargado. Dimensiones del archivo: {total_filas} filas")
 
@@ -91,14 +99,16 @@ def main():
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    plt.show()
+    plt.savefig('grafica.png')
+    plt.close()
 
     cm_global = confusion_matrix(y_true_global, y_pred_global)
     disp = ConfusionMatrixDisplay(confusion_matrix=cm_global, display_labels=[0, 1, 2])
     disp.plot(cmap=plt.cm.Greens)
     plt.title(f"Matriz de Confusion Global Unificada")
     plt.tight_layout()
-    plt.show()
+    plt.savefig('matriz.png')
+    plt.close()
 
     print("SISTEMA: Ejecucion del cluster distribuido finalizada de forma exitosa")
 
