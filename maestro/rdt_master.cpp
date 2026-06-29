@@ -10,6 +10,30 @@
 
 namespace rdt {
 
+// quitar static para que todos los nodos simulen
+// poner static para que solo el primer nodo simule 
+static int simulation_drops = 0, simulation_does = 0;
+static int simulation_corruptions = 0, corruption_does = 0;
+
+static bool drop_packet() {
+    if (simulation_drops >= 5) return false;
+    if (++simulation_does % 5 == 0) {
+        ++simulation_drops;
+        return true;
+    }
+    return false;
+}
+
+static bool corrupt_packet(RdtPacket& pkt) {
+    if (simulation_corruptions >= 3) return false;
+    if (++corruption_does % 7 == 0) {
+        ++simulation_corruptions;
+        pkt.payload[0] = 'k';
+        return true;
+    }
+    return false;
+}
+
 MasterRdt::MasterRdt() : socket_fd(-1), keep_running(false) {}
 
 MasterRdt::~MasterRdt() {
@@ -105,17 +129,25 @@ bool MasterRdt::transmit_gbn_pipeline(SlaveNode* slave, const std::vector<RdtPac
     size_t next_seq_num = 0;
     int consecutive_timeouts = 0;
 
-    std::cout << "SISTEMA: Iniciando transmision GBN hacia Nodo " << slave->id 
-              << " | Total paquetes: " << pipeline_packets.size() << std::endl;
+    std::cout << "SISTEMA: Iniciando transmision GBN hacia Nodo " << slave->id  << " | Total paquetes: " << pipeline_packets.size() << std::endl;
 
     while (base < pipeline_packets.size()) {
         while (next_seq_num < base + window_size && next_seq_num < pipeline_packets.size()) {
             RdtPacket send_pkt = pipeline_packets[next_seq_num];
-            sendto(socket_fd, &send_pkt, sizeof(RdtPacket), 0, (struct sockaddr*)&slave->addr, sizeof(slave->addr));
-            
-            std::cout << "  TX: Enviando SEQ " << send_pkt.seq_num 
+
+            // Simular perdida de paquete
+            if (drop_packet()) {
+                std::cout << "SIMULACION: SEQ " << send_pkt.seq_num << " descartado (pérdida #" << simulation_drops << ")" << std::endl;
+            } else {
+                if (corrupt_packet(send_pkt)) {
+                    std::cout << "SIMULACION: SEQ " << send_pkt.seq_num << " enviado con corrupcion intencional (#" << simulation_corruptions << ")" << std::endl;
+                }
+                sendto(socket_fd, &send_pkt, sizeof(RdtPacket), 0,(struct sockaddr*)&slave->addr, sizeof(slave->addr));
+                std::cout << "  TX: Enviando SEQ " << send_pkt.seq_num 
                       << " | Flag " << (int)send_pkt.flags 
                       << " | Ventana base: " << base << std::endl;
+            }
+            
             next_seq_num++;
         }
 
@@ -129,8 +161,7 @@ bool MasterRdt::transmit_gbn_pipeline(SlaveNode* slave, const std::vector<RdtPac
 
             if (rx_pkt.flags == 4) {
                 if (rx_pkt.seq_num >= base) {
-                    std::cout << "  RX: Confirmado ACK SEQ " << rx_pkt.seq_num 
-                              << " | Deslizando base a " << (rx_pkt.seq_num + 1) << std::endl;
+                    std::cout << "  RX: Confirmado ACK SEQ " << rx_pkt.seq_num << " | Deslizando base a " << (rx_pkt.seq_num + 1) << std::endl;
                     base = rx_pkt.seq_num + 1;
                     consecutive_timeouts = 0;
                     ack_processed = true;
@@ -145,8 +176,7 @@ bool MasterRdt::transmit_gbn_pipeline(SlaveNode* slave, const std::vector<RdtPac
                 std::cout << "CRITICO: Limite de retransmisiones alcanzado. Abortando transmision." << std::endl;
                 return false;
             }
-            std::cout << "  TIMEOUT: Expiracion en secuencia base " << base 
-                      << " | Forzando retroceso Go-Back-N" << std::endl;
+            std::cout << "  TIMEOUT: Expiracion en secuencia base " << base << " | Forzando retroceso Go-Back-N" << std::endl;
             next_seq_num = base; 
         }
     }
@@ -241,9 +271,7 @@ std::string MasterRdt::receive_data_from_slave(int slave_idx) {
             }
         } else {
             if (slave->expected_seq > 0) {
-                std::cout << "  DESFASE: Recibido SEQ " << pkt.seq_num 
-                          << " | Esperado: " << slave->expected_seq 
-                          << " | Reenviando ACK previo: " << (slave->expected_seq - 1) << std::endl;
+                std::cout << "  DESFASE: Recibido SEQ " << pkt.seq_num << " | Esperado: " << slave->expected_seq << " | Reenviando ACK previo: " << (slave->expected_seq - 1) << std::endl;
                           
                 RdtPacket ack_pkt;
                 std::memset(&ack_pkt, 0, sizeof(RdtPacket));

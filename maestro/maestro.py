@@ -99,6 +99,7 @@ def main():
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
+    #plt.plot()
     plt.savefig('grafica.png')
     plt.close()
 
@@ -107,6 +108,7 @@ def main():
     disp.plot(cmap=plt.cm.Greens)
     plt.title(f"Matriz de Confusion Global Unificada")
     plt.tight_layout()
+    #plt.plot()
     plt.savefig('matriz.png')
     plt.close()
 

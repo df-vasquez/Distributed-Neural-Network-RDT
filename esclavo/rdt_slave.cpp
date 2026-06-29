@@ -57,11 +57,13 @@ std::string SlaveRdt::receive_data_from_master() {
         RdtPacket temp_pkt = pkt;
         temp_pkt.checksum = 0;
         if (compute_internet_checksum(temp_pkt) != received_checksum) {
-            continue; // Descarte silencioso ante corrupción
+            std::cout << "SISTEMA: Integridad violada paquete, descarte por error de checksum" << std::endl;
+            continue;
         }
 
         // Lógica del Receptor Secuencial
         if (pkt.seq_num == expected_seq) {
+            std::cout << "SISTEMA: Paquete #" << pkt.seq_num << " recibido íntegramente. Enviando ACK." << std::endl;
             if (pkt.data_len > 0) {
                 full_data.append(pkt.payload, pkt.data_len);
             }
