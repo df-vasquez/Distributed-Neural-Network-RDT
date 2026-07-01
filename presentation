@@ -1,0 +1,41 @@
+#!/bin/bash
+
+PROJECT_DIR="$HOME/Escritorio/Redes y Comunicacion 2026-1/Distributed-Neural-Network-RDT-main"
+
+cd "$PROJECT_DIR" || exit 1
+
+echo "Activando entorno y ejecutando 3 esclavos + maestro..."
+
+gnome-terminal -- bash -c "
+cd '$PROJECT_DIR'
+source venv/bin/activate
+cd esclavo
+python esclavo.py 1
+exec bash
+"
+
+gnome-terminal -- bash -c "
+cd '$PROJECT_DIR'
+source venv/bin/activate
+cd esclavo
+python esclavo.py 2
+exec bash
+"
+
+gnome-terminal -- bash -c "
+cd '$PROJECT_DIR'
+source venv/bin/activate
+cd esclavo
+python esclavo.py 3
+exec bash
+"
+
+sleep 25
+
+gnome-terminal -- bash -c "
+cd '$PROJECT_DIR'
+source venv/bin/activate
+cd maestro
+python maestro.py 3 1
+exec bash
+"
